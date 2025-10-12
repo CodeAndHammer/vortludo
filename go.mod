@@ -8,7 +8,7 @@ require (
 	go.eigsys.de/gin-cachecontrol/v2 v2.3.0
 )
 
-require github.com/samber/lo v1.51.0
+require github.com/samber/lo v1.52.0
 
 require (
 	github.com/goccy/go-yaml v1.18.0 // indirect
