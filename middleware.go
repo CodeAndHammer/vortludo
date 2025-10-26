@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,13 +13,19 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// precomputed Content-Security-Policy header to avoid allocations per-request
-var cspHeader = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+// precomputed Content-Security-Policy template to avoid allocations per-request
+var cspTemplate = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 
 // securityHeadersMiddleware sets recommended security headers including CSP.
 func securityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Content-Security-Policy", cspHeader)
+		scheme := "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+		origin := scheme + "://" + c.Request.Host
+		csp := strings.ReplaceAll(cspTemplate, "'self'", "'"+origin+"'")
+		c.Header("Content-Security-Policy", csp)
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
