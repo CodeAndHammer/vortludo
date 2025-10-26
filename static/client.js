@@ -69,6 +69,12 @@ document.addEventListener('click', (e) => {
     }
 });
 
+/**
+ * Debounces a function call.
+ * @param {Function} func - The function to debounce.
+ * @param {number} wait - The wait time in milliseconds.
+ * @returns {Function} The debounced function.
+ */
 const debounce = (func, wait) => {
     let timeout;
     return (...args) => {
@@ -79,12 +85,21 @@ const debounce = (func, wait) => {
     };
 };
 
+/**
+ * Reads a cookie value by name.
+ * @param {string} name - The name of the cookie.
+ * @returns {string} The cookie value or empty string if not found.
+ */
 const readCookie = (name) => {
     const v = `; ${document.cookie}`;
     const parts = v.split(`; ${name}=`);
     return parts.length === 2 ? parts.pop().split(';').shift() : '';
 };
 
+/**
+ * Initializes the game application with Alpine.js data and methods.
+ * @returns {Object} The Alpine.js data object for the game.
+ */
 window.gameApp = function () {
     return {
         currentGuess: '',
@@ -830,6 +845,9 @@ window.gameApp = function () {
     };
 };
 
+/**
+ * Shares the game results by copying to clipboard or opening modal.
+ */
 window.shareResults = function () {
     if (window.Alpine && typeof window.Alpine.$data === 'function') {
         const xDataEl = document.querySelector('[x-data]');

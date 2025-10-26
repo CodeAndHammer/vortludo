@@ -13,7 +13,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// precomputed Content-Security-Policy template to avoid allocations per-request
+// cspTemplate is a precomputed Content-Security-Policy template to avoid allocations per-request
 var cspTemplate = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 
 // securityHeadersMiddleware sets recommended security headers including CSP.

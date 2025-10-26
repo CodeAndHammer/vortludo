@@ -58,7 +58,7 @@ type App struct {
 	RuneBufPool     *sync.Pool
 }
 
-// globalApp holds a reference to the running App instance for small helpers.
+// globalApp holds a reference to the running App instance.
 var globalApp *App
 
 // setGlobalApp sets the package-level App pointer.

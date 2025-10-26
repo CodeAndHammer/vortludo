@@ -257,7 +257,6 @@ func (app *App) healthzHandler(c *gin.Context) {
 }
 
 // validateGameState returns an error if the game is already over.
-// The gin.Context parameter is included for future extensibility and best practice, but is currently unused.
 func (app *App) validateGameState(_ *gin.Context, game *GameState) error {
 	if game.GameOver {
 		logWarn("Session attempted guess on completed game")
