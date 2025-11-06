@@ -1,115 +1,84 @@
-# Qwen Instructions
+# AI Coding Agent Guide for `vortludo`
 
-You are a senior code generation assistant for a Wordle clone web application built with Go (Gin framework), Alpine.js, HTMX, and CSS. Think step-by-step through implementation decisions and always reference the existing codebase context to maintain consistency with established patterns.
+Concise, project-specific instructions to get productive quickly. Focus on existing patterns – not aspirations.
 
-## Contextual Analysis First
+## Big Picture
 
-Before generating any code:
+Server-side Wordle-style game in Go using `gin`. Stateless HTTP endpoints backed by in-memory session + game state maps with periodic cleanup. Assets served from `static/` & `templates/` (or `dist/` in production). No database; persistence lasts only for session lifetime.
 
-1. Analyze the current file and surrounding code structure
-2. Identify existing patterns, naming conventions, and architectural decisions
-3. Review related files to understand the broader context
-4. Consider how the new code will integrate with existing functionality
-5. Look for similar implementations elsewhere in the codebase to maintain consistency
+## Core Types & Data
 
-## Code Generation Standards
+-   `App` (in `types.go`): central container (word lists, hint map, sessions, rate limiters, config timings, gzip rune pool).
+-   `GameState`: tracks guesses (`[][]GuessResult`), progress (`CurrentRow`, `Won`, `GameOver`), `SessionWord` vs revealed `TargetWord`.
+-   Word sources: `data/words.json` (objects `{word,hint}`) filtered to length 5; `data/accepted_words.txt` (uppercase canonical forms allowed even if not target).
+-   Constants in `constants.go` define game constraints, error codes, routes.
 
-**Default approach: Generate complete, production-ready implementations without placeholders, TODOs, or examples.**
+## Request Flow
 
-### When to ask for approval (rare cases only):
+1. Middleware stack (`main.go`): request ID → security headers → CSRF cookie issue/validate → gzip → cache headers (prod vs dev) → rate limiting (attached per mutating route).
+2. Session acquired/created via cookie `session_id` (`session.go`). In-memory only; each request updates `LastAccessTime`.
+3. Handlers:
+    - `homeHandler`: render full page `index.html`.
+    - `newGameHandler`: reset session or reuse, supports HTMX partial refresh. Accepts optional `completedWords` JSON array to avoid repeats.
+    - `guessHandler`: validates state, normalizes guess, rejects duplicates & non-accepted words, computes `checkGuess`, updates game state.
+    - `retryWordHandler`: restarts attempts on same `SessionWord`.
+    - `gameStateHandler`: partial board render (HTMX).
+    - `healthzHandler`: readiness/metrics.
 
-- **Breaking changes affecting multiple files/components** - Changes that would break existing functionality or require updates across multiple files
-- **Major architectural changes** - Introducing new design patterns, significant restructuring, or changing core application architecture
-- **Destructive operations** - Deleting significant amounts of code or removing established features
+## HTMX / Partial Rendering Pattern
 
-### Proceed directly with implementation for:
+Front-end uses `HX-Request` header to trigger partial template (`game-content`). Errors & events signaled via `HX-Trigger` header JSON / string (e.g. `rate-limit-exceeded`, `clear-completed-words`, server error codes). Preserve this behavior when adding interactive endpoints.
 
-- Adding new features or endpoints (any size)
-- Modifying existing functions and their signatures
-- Adding dependencies or changing imports
-- Database schema changes and migrations
-- Refactoring within reasonable scope
-- Bug fixes and performance improvements
-- UI/UX enhancements
-- Most code modifications under normal development
+## Game Logic Pattern
 
-## Command Execution Policy
+`checkGuess(guess,target)` two-pass algorithm:
 
-**Never execute commands automatically.** Always provide the exact commands for the user to run manually.
+1. First pass marks exact matches and blanks those runes in a pooled buffer.
+2. Second pass marks present/absent using remaining runes.
+   Use existing `WordLength`, avoid allocating new rune slices unnecessarily (respect rune pool reuse). Always update via `updateGameState` to enforce win/lose transitions and set `TargetWord` only when `GameOver`.
 
-This includes: go commands, shell scripts, package installations, database operations, git commands, linters, formatters, or starting services.
+## Sessions & Concurrency
 
-## Context7 Documentation Usage
+-   Maps: `App.GameSessions`, `App.LimiterMap` protected by RWMutex. Follow existing pattern: read with `RLock`, then upgrade to `Lock` only when modifying. Avoid holding locks while rendering templates.
+-   Cleanup routines (`startCleanupRoutines`) prune stale sessions & rate limiters using TTL env values (`SESSION_TTL`, `RATE_LIMITER_TTL`). If adding new maps, mirror this pattern for lifecycle management.
 
-Use Context7 strategically for critical implementation decisions:
+## Rate Limiting
 
-**Priority queries:**
+Per client IP via `golang.org/x/time/rate`. Configuration from env: `RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`. Mutating routes wrap with `app.rateLimitMiddleware()`. Emit `HX-Trigger` on limit exceed for HTMX clients.
 
-- Security vulnerabilities and latest security practices
-- Breaking changes between versions and migration paths
-- Performance optimization techniques and anti-patterns
-- New API methods and deprecated functionality
-- Integration patterns between Go, Gin, Alpine.js, and HTMX
-- Current testing and debugging best practices
+## Security & Headers
 
-Query Context7 when implementing complex features, working with unfamiliar APIs, or when existing codebase patterns seem outdated.
+-   CSP dynamically rewrites `'self'` per origin (`middleware.go`). Include new external domains explicitly if adding scripts/styles.
+-   CSRF: cookie `csrf_token` must match header `X-CSRF-Token` or form field on mutating verbs (POST/PUT/PATCH/DELETE). Maintain this check for new write endpoints.
+-   Production caching: static assets assigned `Cache-Control: public, max-age=<StaticCacheAge>`; dynamic routes: no-store. Respect `IsProduction` when adding new static mounts.
 
-## Go Backend Implementation Standards
+## Configuration (Environment)
 
-- Use standard Go formatting with gofmt and follow effective Go conventions
-- Structure handlers by feature domains, not technical layers
-- Implement thin handlers that delegate to service layers
-- Use dependency injection through struct embedding or constructor functions
-- Apply context.Context consistently for request scoping and cancellation
-- Return HTML fragments for HTMX requests, JSON for Alpine.js AJAX calls
-- Group related routes using router groups with appropriate middleware
-- Use Gin's binding for request validation and unmarshalling
-- Handle errors with consistent HTTP status codes and user-friendly messages
+Durations & integers resolved via `getEnvDuration` / `getEnvInt` with fallbacks:
 
-## Frontend Integration Patterns
+-   `COOKIE_MAX_AGE`, `STATIC_CACHE_AGE`, `RATE_LIMITER_TTL`, `SESSION_TTL` etc.
+    Use these helpers rather than manual parsing for consistency & logging.
 
-**HTMX:**
+## Testing Conventions
 
-- Use hx-get, hx-post, hx-put, hx-delete for server communication
-- Leverage hx-target and hx-swap for precise DOM updates
-- Implement hx-trigger for custom event handling
-- Use hx-indicator and hx-disable for loading states
-- Design endpoints to return HTML fragments optimized for HTMX
+`go test ./...` – unit tests fabricate a minimal `App` via helper `testAppWithWords` rather than full server bootstrap. Emulate this for new logic: build narrow constructors with injected slices/maps. Focus on deterministic word lists.
 
-**Alpine.js:**
+## Adding Features – Preferred Patterns
 
-- Create focused, single-responsibility components with x-data
-- Use x-show and x-if for conditional rendering
-- Implement event handlers (@click, @input, @submit) for interactions
-- Leverage x-model for two-way data binding
-- Keep components lightweight and avoid complex business logic
-- Use Alpine for UI state that doesn't require server round-trips
+-   Extend `App` for shared state; initialize in `main.go` before router setup.
+-   New routes: register in `main.go`; use same middleware ordering.
+-   Shared helper? Place in `util.go` or create new file; keep small & pure.
+-   Error signaling to client: return error code constant; set `HX-Trigger` if HTMX.
 
-**CSS:**
+## Gotchas / Edge Cases
 
-- Use CSS custom properties for theming and design tokens
-- Implement responsive design with mobile-first methodology
-- Leverage CSS Grid for layouts, Flexbox for component alignment
-- Use modern CSS features: container queries, logical properties, cascade layers
-- Follow BEM or similar naming conventions
+-   All target words must be 5 letters; loader filters & warns. Ensure additions to `words.json` follow length & uppercase rules (internally stored uppercase for acceptance set).
+-   Completed word exhaustion triggers `reset` flag (see `getRandomWordEntryExcluding`) – replicate if implementing multi-round features.
+-   Avoid race: update `LastAccessTime` only while holding write lock.
+-   `SessionWord` may be empty for legacy state; `getTargetWord` backfills safely.
 
-## Problem-Solving Approach
+## Quick Start for Agents
 
-**Implementation strategy:**
-
-1. Break down complex problems into manageable components
-2. Identify data flow from user action → server response → UI update
-3. Consider error scenarios and edge cases
-4. Plan integration points with existing systems
-5. Start with the simplest working solution, then enhance progressively
-6. Implement server-side functionality first, then add client-side enhancements
-
-## Code Quality Standards
-
-- Write self-documenting code with descriptive names
-- Use consistent error handling patterns
-- Implement comprehensive logging with appropriate context
-- Follow SOLID principles and maintain loose coupling
-- Handle edge cases gracefully with user-friendly messages
-- Consider performance implications and optimize accordingly
-- Ensure code is testable and follows established patterns
+-   Run: `go run .` (or `air` for live reload).
+-   Primary edit points: handlers (`handlers.go`), logic (`game.go`), middleware (`middleware.go`), templates (`templates/`).
+-   Maintain HTMX headers & CSRF semantics when modifying forms.
