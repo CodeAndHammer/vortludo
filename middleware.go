@@ -13,10 +13,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// cspTemplate is a precomputed Content-Security-Policy template to avoid allocations per-request
 var cspTemplate = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 
-// securityHeadersMiddleware sets recommended security headers including CSP.
 func securityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scheme := "http"
@@ -36,19 +34,24 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-// getLimiter returns a rate limiter for the given key (usually client IP).
 func (app *App) getLimiter(key string) *rate.Limiter {
 	app.LimiterMutex.RLock()
-	lim, ok := app.LimiterMap[key]
+	limWithTime, ok := app.LimiterMap[key]
 	app.LimiterMutex.RUnlock()
 	if ok {
-		return lim
+		app.LimiterMutex.Lock()
+		if limWithTime, ok = app.LimiterMap[key]; ok {
+			limWithTime.LastAccess = time.Now()
+		}
+		app.LimiterMutex.Unlock()
+		return limWithTime.Limiter
 	}
 
 	app.LimiterMutex.Lock()
 	defer app.LimiterMutex.Unlock()
-	if lim, ok = app.LimiterMap[key]; ok {
-		return lim
+	if limWithTime, ok = app.LimiterMap[key]; ok {
+		limWithTime.LastAccess = time.Now()
+		return limWithTime.Limiter
 	}
 
 	if key == "" || key == "::1" {
@@ -58,12 +61,15 @@ func (app *App) getLimiter(key string) *rate.Limiter {
 	if rps <= 0 {
 		rps = 1
 	}
-	lim = rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), app.RateLimitBurst)
-	app.LimiterMap[key] = lim
+	lim := rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), app.RateLimitBurst)
+	limWithTime = &RateLimiterWithTime{
+		Limiter:    lim,
+		LastAccess: time.Now(),
+	}
+	app.LimiterMap[key] = limWithTime
 	return lim
 }
 
-// rateLimitMiddleware returns a Gin middleware that enforces per-client rate limiting.
 func (app *App) rateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.ClientIP()
@@ -78,7 +84,6 @@ func (app *App) rateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requestIDMiddleware injects a request ID into the context for each request.
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.Request.Header.Get("X-Request-Id")
@@ -92,7 +97,6 @@ func requestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
-// validateCSRFMiddleware enforces that unsafe methods include a matching CSRF token
 func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
@@ -115,8 +119,6 @@ func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-// csrfMiddleware ensures a per-session CSRF token cookie exists and stores it in the context.
-// It does not validate requests; handlers should validate the token on unsafe methods.
 func (app *App) csrfMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := c.Cookie("csrf_token")

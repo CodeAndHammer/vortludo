@@ -7,21 +7,17 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// contextKey is a type for context keys defined in this package.
 type contextKey string
 
-// WordEntry represents a word and its associated hint.
 type WordEntry struct {
 	Word string `json:"word"`
 	Hint string `json:"hint"`
 }
 
-// WordList is a container for a list of WordEntry items, used for JSON unmarshalling.
 type WordList struct {
 	Words []WordEntry `json:"words"`
 }
 
-// GameState holds the state of a user's current game session.
 type GameState struct {
 	Guesses        [][]GuessResult `json:"guesses"`
 	CurrentRow     int             `json:"currentRow"`
@@ -33,13 +29,16 @@ type GameState struct {
 	LastAccessTime time.Time       `json:"lastAccessTime"`
 }
 
-// GuessResult represents the result of a single letter in a guess.
 type GuessResult struct {
 	Letter string `json:"letter"`
 	Status string `json:"status"`
 }
 
-// App is the main application struct holding all global state and configuration.
+type RateLimiterWithTime struct {
+	Limiter    *rate.Limiter
+	LastAccess time.Time
+}
+
 type App struct {
 	WordList        []WordEntry
 	WordSet         map[string]struct{}
@@ -47,7 +46,7 @@ type App struct {
 	HintMap         map[string]string
 	GameSessions    map[string]*GameState
 	SessionMutex    sync.RWMutex
-	LimiterMap      map[string]*rate.Limiter
+	LimiterMap      map[string]*RateLimiterWithTime
 	LimiterMutex    sync.RWMutex
 	IsProduction    bool
 	StartTime       time.Time
@@ -55,18 +54,17 @@ type App struct {
 	StaticCacheAge  time.Duration
 	RateLimitRPS    int
 	RateLimitBurst  int
+	RateLimiterTTL  time.Duration
+	SessionTTL      time.Duration
 	RuneBufPool     *sync.Pool
 }
 
-// globalApp holds a reference to the running App instance.
 var globalApp *App
 
-// setGlobalApp sets the package-level App pointer.
 func setGlobalApp(a *App) {
 	globalApp = a
 }
 
-// getAppInstance returns the package-level App pointer (may be nil in tests).
 func getAppInstance() *App {
 	return globalApp
 }

@@ -1,24 +1,20 @@
 package main
 
-// Game configuration constants
 const (
 	MaxGuesses = 6
 	WordLength = 5
 )
 
-// Guess status constants
 const (
 	GuessStatusCorrect = "correct"
 	GuessStatusPresent = "present"
 	GuessStatusAbsent  = "absent"
 )
 
-// Session configuration constants
 const (
 	SessionCookieName = "session_id"
 )
 
-// Route constants
 const (
 	RouteHome      = "/"
 	RouteNewGame   = "/new-game"
@@ -27,7 +23,6 @@ const (
 	RouteGameState = "/game-state"
 )
 
-// Error code constants
 const (
 	ErrorCodeGameOver        = "game_over"
 	ErrorCodeInvalidLength   = "invalid_length"
@@ -37,7 +32,6 @@ const (
 	ErrorCodeDuplicateGuess  = "duplicate_guess"
 )
 
-// Context key constants
 const (
 	requestIDKey contextKey = "request_id"
 )

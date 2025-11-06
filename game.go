@@ -10,7 +10,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// getRandomWordEntry returns a random WordEntry from the loaded word list.
 func (app *App) getRandomWordEntry(ctx context.Context) WordEntry {
 	reqID, _ := ctx.Value(requestIDKey).(string)
 
@@ -41,8 +40,6 @@ func (app *App) getRandomWordEntry(ctx context.Context) WordEntry {
 	return app.WordList[n.Int64()]
 }
 
-// getRandomWordEntryExcluding returns a random WordEntry excluding completed words.
-// Returns the selected word and a boolean indicating if all words are completed (reset needed).
 func (app *App) getRandomWordEntryExcluding(ctx context.Context, completedWords []string) (WordEntry, bool) {
 	reqID, _ := ctx.Value(requestIDKey).(string)
 
@@ -94,7 +91,6 @@ func (app *App) getRandomWordEntryExcluding(ctx context.Context, completedWords 
 	return selected, false
 }
 
-// getHintForWord returns the hint for a given word, or an empty string if not found.
 func (app *App) getHintForWord(wordValue string) string {
 	if wordValue == "" {
 		return ""
@@ -107,14 +103,12 @@ func (app *App) getHintForWord(wordValue string) string {
 	return ""
 }
 
-// buildHintMap creates a map from word to hint for fast lookup.
 func buildHintMap(wordList []WordEntry) map[string]string {
 	return lo.Associate(wordList, func(entry WordEntry) (string, string) {
 		return entry.Word, entry.Hint
 	})
 }
 
-// getTargetWord returns the session's target word, assigning one if missing.
 func (app *App) getTargetWord(ctx context.Context, game *GameState) string {
 	if game.SessionWord == "" {
 		selectedEntry := app.getRandomWordEntry(ctx)
@@ -124,7 +118,6 @@ func (app *App) getTargetWord(ctx context.Context, game *GameState) string {
 	return game.SessionWord
 }
 
-// updateGameState updates the game state after a guess, handling win/lose logic.
 func (app *App) updateGameState(ctx context.Context, game *GameState, guess, targetWord string, result []GuessResult, isInvalid bool) {
 	reqID, _ := ctx.Value(requestIDKey).(string)
 
@@ -162,7 +155,6 @@ func (app *App) updateGameState(ctx context.Context, game *GameState, guess, tar
 	}
 }
 
-// checkGuess compares a guess to the target word and returns per-letter results.
 func checkGuess(guess, target string) []GuessResult {
 	result := make([]GuessResult, WordLength)
 	var targetCopy []rune
@@ -226,19 +218,16 @@ func checkGuess(guess, target string) []GuessResult {
 	return result
 }
 
-// isValidWord returns true if the word is in the playable word set.
 func (app *App) isValidWord(word string) bool {
 	_, ok := app.WordSet[word]
 	return ok
 }
 
-// isAcceptedWord returns true if the word is in the accepted guess set.
 func (app *App) isAcceptedWord(word string) bool {
 	_, ok := app.AcceptedWordSet[word]
 	return ok
 }
 
-// createNewGame initializes a new GameState for a session and stores it.
 func (app *App) createNewGame(ctx context.Context, sessionID string) *GameState {
 	selectedEntry := app.getRandomWordEntry(ctx)
 	logInfo("New game created for session %s with word: %s (hint: %s)", sessionID, selectedEntry.Word, selectedEntry.Hint)
@@ -259,7 +248,6 @@ func (app *App) createNewGame(ctx context.Context, sessionID string) *GameState 
 	return game
 }
 
-// createNewGameWithCompletedWords initializes a new GameState excluding completed words.
 func (app *App) createNewGameWithCompletedWords(ctx context.Context, sessionID string, completedWords []string) (*GameState, bool) {
 	selectedEntry, needsReset := app.getRandomWordEntryExcluding(ctx, completedWords)
 	logInfo("New game created for session %s with word: %s (hint: %s, completed words: %d, needs reset: %v)",
