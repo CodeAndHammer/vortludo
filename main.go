@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,11 +18,14 @@ import (
 
 	ginGzip "github.com/gin-contrib/gzip"
 
+	"golang.org/x/time/rate"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/samber/lo"
 )
 
+// main is the entry point for the application. It loads configuration, sets up routes, and starts the server.
 func main() {
 	_ = godotenv.Load()
 
@@ -56,9 +58,7 @@ func main() {
 		StaticCacheAge:  getEnvDuration("STATIC_CACHE_AGE", 5*time.Minute),
 		RateLimitRPS:    getEnvInt("RATE_LIMIT_RPS", 5),
 		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 10),
-		RateLimiterTTL:  getEnvDuration("RATE_LIMITER_TTL", 1*time.Hour),
-		SessionTTL:      getEnvDuration("SESSION_TTL", 3*time.Hour),
-		LimiterMap:      make(map[string]*RateLimiterWithTime),
+		LimiterMap:      make(map[string]*rate.Limiter),
 		RuneBufPool: &sync.Pool{
 			New: func() any { buf := make([]rune, WordLength); return &buf },
 		},
@@ -125,11 +125,10 @@ func main() {
 	router.POST("/retry-word", app.rateLimitMiddleware(), app.retryWordHandler)
 	router.GET("/healthz", app.healthzHandler)
 
-	app.startCleanupRoutines()
-
 	app.startServer(router)
 }
 
+// startServer launches the HTTP server and handles graceful shutdown on SIGINT/SIGTERM.
 func (app *App) startServer(router *gin.Engine) {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -166,6 +165,7 @@ func (app *App) startServer(router *gin.Engine) {
 	logInfo("Server shutdown complete")
 }
 
+// applyCacheHeaders sets HTTP cache headers for static and dynamic content based on environment.
 func (app *App) applyCacheHeaders(c *gin.Context, production bool) {
 	if production {
 		if strings.HasPrefix(c.Request.URL.Path, "/static/") {
@@ -190,6 +190,7 @@ func (app *App) applyCacheHeaders(c *gin.Context, production bool) {
 	}
 }
 
+// loadWords loads the playable words from data/words.json and returns a filtered list and set.
 func loadWords() ([]WordEntry, map[string]struct{}, error) {
 	logInfo("Loading words from data/words.json")
 
@@ -220,94 +221,7 @@ func loadWords() ([]WordEntry, map[string]struct{}, error) {
 	return wordList, wordSet, nil
 }
 
-func (app *App) startCleanupRoutines() {
-	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			app.cleanupStaleSessions()
-		}
-	}()
-
-	go func() {
-		ticker := time.NewTicker(30 * time.Minute)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			app.cleanupStaleRateLimiters()
-		}
-	}()
-
-	logInfo("Started cleanup routines for sessions and rate limiters")
-}
-
-func (app *App) cleanupStaleSessions() {
-	app.SessionMutex.Lock()
-	defer app.SessionMutex.Unlock()
-
-	cutoffTime := time.Now().Add(-app.SessionTTL)
-	removedCount := 0
-
-	for sessionID, game := range app.GameSessions {
-		if game.LastAccessTime.Before(cutoffTime) {
-			delete(app.GameSessions, sessionID)
-			removedCount++
-		}
-	}
-
-	if removedCount > 0 {
-		logInfo("Cleaned up %d stale sessions", removedCount)
-	}
-}
-
-func (app *App) cleanupStaleRateLimiters() {
-	app.LimiterMutex.Lock()
-	defer app.LimiterMutex.Unlock()
-
-	cutoffTime := time.Now().Add(-app.RateLimiterTTL)
-	removedCount := 0
-
-	for key, limWithTime := range app.LimiterMap {
-		if limWithTime.LastAccess.Before(cutoffTime) {
-			delete(app.LimiterMap, key)
-			removedCount++
-		}
-	}
-
-	if len(app.LimiterMap) > 10000 {
-		logInfo("Rate limiter map too large (%d entries), performing emergency cleanup", len(app.LimiterMap))
-
-		if len(app.LimiterMap) > 50000 {
-			type limiterInfo struct {
-				key        string
-				lastAccess time.Time
-			}
-
-			var limiters []limiterInfo
-			for key, limWithTime := range app.LimiterMap {
-				limiters = append(limiters, limiterInfo{key: key, lastAccess: limWithTime.LastAccess})
-			}
-
-			sort.Slice(limiters, func(i, j int) bool {
-				return limiters[i].lastAccess.Before(limiters[j].lastAccess)
-			})
-
-			entriesToRemove := len(limiters) / 2
-			for i := 0; i < entriesToRemove; i++ {
-				delete(app.LimiterMap, limiters[i].key)
-				removedCount++
-			}
-
-			logInfo("Removed %d oldest rate limiters", entriesToRemove)
-		}
-	}
-
-	if removedCount > 0 {
-		logInfo("Cleaned up %d stale rate limiters", removedCount)
-	}
-}
-
+// loadAcceptedWords loads the accepted guess words from data/accepted_words.txt.
 func loadAcceptedWords() (map[string]struct{}, error) {
 	logInfo("Loading accepted words from data/accepted_words.txt")
 

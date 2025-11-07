@@ -115,6 +115,7 @@ func TestUpdateGameState_WinLose(t *testing.T) {
 	if !game.Won || !game.GameOver || game.TargetWord != "apple" {
 		t.Error("Game should be won and over, target word revealed")
 	}
+	// Test lose
 	game = &GameState{
 		Guesses:      make([][]GuessResult, MaxGuesses),
 		CurrentRow:   MaxGuesses - 1,
@@ -134,18 +135,21 @@ func TestUpdateGameState_WinLose(t *testing.T) {
 }
 
 func TestCheckGuess(t *testing.T) {
+	// All correct
 	res := checkGuess("apple", "apple")
 	for _, r := range res {
 		if r.Status != GuessStatusCorrect {
 			t.Error("All should be correct")
 		}
 	}
+	// All absent
 	res = checkGuess("zzzzz", "apple")
 	for _, r := range res {
 		if r.Status != GuessStatusAbsent {
 			t.Error("All should be absent")
 		}
 	}
+	// Mixed
 	res = checkGuess("pleap", "apple")
 	statuses := []string{GuessStatusPresent, GuessStatusPresent, GuessStatusPresent, GuessStatusPresent, GuessStatusPresent}
 	for i, r := range res {
