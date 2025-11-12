@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	constants "vortludo/internal/constants"
-	game "vortludo/internal/game"
-	models "vortludo/internal/models"
+	constants "github.com/CodeAndHammer/vortludo/internal/constants"
+	game "github.com/CodeAndHammer/vortludo/internal/game"
+	models "github.com/CodeAndHammer/vortludo/internal/models"
 )
 
 func testAppWithWords(words []models.WordEntry) *models.App {

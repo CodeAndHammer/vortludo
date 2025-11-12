@@ -7,10 +7,10 @@ import (
 	"slices"
 	"time"
 
+	constants "github.com/CodeAndHammer/vortludo/internal/constants"
+	models "github.com/CodeAndHammer/vortludo/internal/models"
+	util "github.com/CodeAndHammer/vortludo/internal/util"
 	"github.com/samber/lo"
-	constants "vortludo/internal/constants"
-	models "vortludo/internal/models"
-	util "vortludo/internal/util"
 )
 
 func GetRandomWordEntry(app *models.App, ctx context.Context) models.WordEntry {

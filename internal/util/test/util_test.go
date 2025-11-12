@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	util "vortludo/internal/util"
+	util "github.com/CodeAndHammer/vortludo/internal/util"
 )
 
 func TestDirExists(t *testing.T) {

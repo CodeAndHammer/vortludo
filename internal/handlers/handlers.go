@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
+	constants "github.com/CodeAndHammer/vortludo/internal/constants"
+	game "github.com/CodeAndHammer/vortludo/internal/game"
+	models "github.com/CodeAndHammer/vortludo/internal/models"
+	session "github.com/CodeAndHammer/vortludo/internal/session"
+	util "github.com/CodeAndHammer/vortludo/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
-	constants "vortludo/internal/constants"
-	game "vortludo/internal/game"
-	models "vortludo/internal/models"
-	session "vortludo/internal/session"
-	util "vortludo/internal/util"
 )
 
 func HomeHandler(app *models.App, c *gin.Context) {

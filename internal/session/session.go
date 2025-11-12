@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	constants "github.com/CodeAndHammer/vortludo/internal/constants"
+	game "github.com/CodeAndHammer/vortludo/internal/game"
+	models "github.com/CodeAndHammer/vortludo/internal/models"
+	util "github.com/CodeAndHammer/vortludo/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	constants "vortludo/internal/constants"
-	game "vortludo/internal/game"
-	models "vortludo/internal/models"
-	util "vortludo/internal/util"
 )
 
 func GetOrCreateSession(app *models.App, c *gin.Context) string {

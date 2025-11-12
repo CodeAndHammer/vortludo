@@ -1,4 +1,4 @@
-module vortludo
+module github.com/CodeAndHammer/vortludo
 
 go 1.25
 

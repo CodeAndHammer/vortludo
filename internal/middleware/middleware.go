@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	constants "github.com/CodeAndHammer/vortludo/internal/constants"
+	models "github.com/CodeAndHammer/vortludo/internal/models"
+	util "github.com/CodeAndHammer/vortludo/internal/util"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
-	constants "vortludo/internal/constants"
-	models "vortludo/internal/models"
-	util "vortludo/internal/util"
 )
 
 type rateLimiterEntry struct {
