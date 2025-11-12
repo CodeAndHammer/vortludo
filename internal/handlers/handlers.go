@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"context"
@@ -13,46 +13,51 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	constants "vortludo/internal/constants"
+	game "vortludo/internal/game"
+	models "vortludo/internal/models"
+	session "vortludo/internal/session"
+	util "vortludo/internal/util"
 )
 
-func (app *App) homeHandler(c *gin.Context) {
+func HomeHandler(app *models.App, c *gin.Context) {
 	ctx := c.Request.Context()
-	sessionID := app.getOrCreateSession(c)
-	game := app.getGameState(ctx, sessionID)
-	hint := app.getHintForWord(game.SessionWord)
+	sessionID := session.GetOrCreateSession(app, c)
+	gameState := session.GetGameState(app, ctx, sessionID)
+	hint := game.GetHintForWord(app, gameState.SessionWord)
 
 	csrfToken, _ := c.Cookie("csrf_token")
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"title":      "Vortludo - A Libre Wordle Clone",
 		"message":    "Guess the 5-letter word!",
 		"hint":       hint,
-		"game":       game,
+		"game":       gameState,
 		"csrf_token": csrfToken,
 	})
 }
 
-func (app *App) newGameHandler(c *gin.Context) {
+func NewGameHandler(app *models.App, c *gin.Context) {
 	ctx := c.Request.Context()
-	sessionID := app.getOrCreateSession(c)
-	logInfo("Creating new game for session: %s", sessionID)
+	sessionID := session.GetOrCreateSession(app, c)
+	util.LogInfo("Creating new game for session: %s", sessionID)
 
 	var completedWords []string
 	if c.Request.Method == "POST" {
 		completedWordsStr := c.PostForm("completedWords")
 		if completedWordsStr != "" {
 			if err := json.Unmarshal([]byte(completedWordsStr), &completedWords); err != nil {
-				logWarn("Failed to parse completed words: %v", err)
+				util.LogWarn("Failed to parse completed words: %v", err)
 				completedWords = []string{}
 			} else {
 				validCompletedWords := lo.Filter(completedWords, func(word string, _ int) bool {
 					_, exists := app.WordSet[word]
 					if !exists {
-						logWarn("Invalid completed word ignored: %s", word)
+						util.LogWarn("Invalid completed word ignored: %s", word)
 					}
 					return exists
 				})
 				completedWords = validCompletedWords
-				logInfo("Validated %d completed words for session %s", len(completedWords), sessionID)
+				util.LogInfo("Validated %d completed words for session %s", len(completedWords), sessionID)
 			}
 		}
 	}
@@ -60,59 +65,59 @@ func (app *App) newGameHandler(c *gin.Context) {
 	app.SessionMutex.Lock()
 	delete(app.GameSessions, sessionID)
 	app.SessionMutex.Unlock()
-	logInfo("Cleared old session data for: %s", sessionID)
+	util.LogInfo("Cleared old session data for: %s", sessionID)
 
 	if c.Query("reset") == "1" {
 		c.SetSameSite(http.SameSiteStrictMode)
 		secure := app.IsProduction
-		c.SetCookie(SessionCookieName, "", -1, "/", "", secure, true)
+		c.SetCookie(constants.SessionCookieName, "", -1, "/", "", secure, true)
 
 		newSessionID := uuid.NewString()
 		c.SetSameSite(http.SameSiteStrictMode)
-		c.SetCookie(SessionCookieName, newSessionID, int(app.CookieMaxAge.Seconds()), "/", "", secure, true)
-		logInfo("Created new session ID: %s", newSessionID)
+		c.SetCookie(constants.SessionCookieName, newSessionID, int(app.CookieMaxAge.Seconds()), "/", "", secure, true)
+		util.LogInfo("Created new session ID: %s", newSessionID)
 
 		if len(completedWords) > 0 {
-			_, needsReset := app.createNewGameWithCompletedWords(ctx, newSessionID, completedWords)
+			_, needsReset := game.CreateNewGameWithCompletedWords(app, ctx, newSessionID, completedWords)
 			if needsReset {
 				c.Header("HX-Trigger", "clear-completed-words")
 			}
 		} else {
-			app.createNewGame(ctx, newSessionID)
+			game.CreateNewGame(app, ctx, newSessionID)
 		}
 		sessionID = newSessionID
 	} else {
 		if len(completedWords) > 0 {
-			_, needsReset := app.createNewGameWithCompletedWords(ctx, sessionID, completedWords)
+			_, needsReset := game.CreateNewGameWithCompletedWords(app, ctx, sessionID, completedWords)
 			if needsReset {
 				c.Header("HX-Trigger", "clear-completed-words")
 			}
 		} else {
-			app.createNewGame(ctx, sessionID)
+			game.CreateNewGame(app, ctx, sessionID)
 		}
 	}
 
 	isHTMX := c.GetHeader("HX-Request") == "true"
 	if isHTMX {
-		game := app.getGameState(ctx, sessionID)
-		hint := app.getHintForWord(game.SessionWord)
+		gameState := session.GetGameState(app, ctx, sessionID)
+		hint := game.GetHintForWord(app, gameState.SessionWord)
 		csrfToken, _ := c.Cookie("csrf_token")
 		c.HTML(http.StatusOK, "game-content", gin.H{
-			"game":       game,
+			"game":       gameState,
 			"hint":       hint,
 			"newGame":    true,
 			"csrf_token": csrfToken,
 		})
 	} else {
-		c.Redirect(http.StatusSeeOther, RouteHome)
+		c.Redirect(http.StatusSeeOther, constants.RouteHome)
 	}
 }
 
-func (app *App) guessHandler(c *gin.Context) {
+func GuessHandler(app *models.App, c *gin.Context) {
 	ctx := c.Request.Context()
-	sessionID := app.getOrCreateSession(c)
-	game := app.getGameState(ctx, sessionID)
-	hint := app.getHintForWord(game.SessionWord)
+	sessionID := session.GetOrCreateSession(app, c)
+	gameState := session.GetGameState(app, ctx, sessionID)
+	hint := game.GetHintForWord(app, gameState.SessionWord)
 
 	renderBoard := func(errCode string) {
 		csrfToken, _ := c.Cookie("csrf_token")
@@ -121,11 +126,11 @@ func (app *App) guessHandler(c *gin.Context) {
 			if b, jerr := json.Marshal(payload); jerr == nil {
 				c.Header("HX-Trigger", string(b))
 			} else {
-				logWarn("Failed to marshal HX-Trigger payload: %v", jerr)
+				util.LogWarn("Failed to marshal HX-Trigger payload: %v", jerr)
 			}
 		}
 		c.HTML(http.StatusOK, "game-content", gin.H{
-			"game":       game,
+			"game":       gameState,
 			"hint":       hint,
 			"error_code": errCode,
 			"csrf_token": csrfToken,
@@ -139,14 +144,14 @@ func (app *App) guessHandler(c *gin.Context) {
 			if b, jerr := json.Marshal(payload); jerr == nil {
 				c.Header("HX-Trigger", string(b))
 			} else {
-				logWarn("Failed to marshal HX-Trigger payload: %v", jerr)
+				util.LogWarn("Failed to marshal HX-Trigger payload: %v", jerr)
 			}
 		}
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"title":      "Vortludo - A Libre Wordle Clone",
 			"message":    "Guess the 5-letter word!",
 			"hint":       hint,
-			"game":       game,
+			"game":       gameState,
 			"error_code": errCode,
 			"csrf_token": csrfToken,
 		})
@@ -154,7 +159,7 @@ func (app *App) guessHandler(c *gin.Context) {
 
 	isHTMX := c.GetHeader("HX-Request") == "true"
 	var errCode string
-	if err := app.validateGameState(c, game); err != nil {
+	if err := ValidateGameState(app, c, gameState); err != nil {
 		errCode = err.Error()
 		if isHTMX {
 			renderBoard(errCode)
@@ -164,9 +169,9 @@ func (app *App) guessHandler(c *gin.Context) {
 		return
 	}
 
-	guess := normalizeGuess(c.PostForm("guess"))
-	if !app.isAcceptedWord(guess) {
-		errCode = ErrorCodeWordNotAccepted
+	guess := NormalizeGuess(c.PostForm("guess"))
+	if !game.IsAcceptedWord(app, guess) {
+		errCode = constants.ErrorCodeWordNotAccepted
 		if isHTMX {
 			renderBoard(errCode)
 		} else {
@@ -175,8 +180,8 @@ func (app *App) guessHandler(c *gin.Context) {
 		return
 	}
 
-	if slices.Contains(game.GuessHistory, guess) {
-		errCode = ErrorCodeDuplicateGuess
+	if slices.Contains(gameState.GuessHistory, guess) {
+		errCode = constants.ErrorCodeDuplicateGuess
 		if isHTMX {
 			renderBoard(errCode)
 		} else {
@@ -184,7 +189,7 @@ func (app *App) guessHandler(c *gin.Context) {
 		}
 		return
 	}
-	if err := app.processGuess(ctx, c, sessionID, game, guess, isHTMX, hint); err != nil {
+	if err := ProcessGuess(app, ctx, c, sessionID, gameState, guess, isHTMX, hint); err != nil {
 		errCode = err.Error()
 		if isHTMX {
 			renderBoard(errCode)
@@ -195,36 +200,36 @@ func (app *App) guessHandler(c *gin.Context) {
 	}
 }
 
-func (app *App) gameStateHandler(c *gin.Context) {
+func GameStateHandler(app *models.App, c *gin.Context) {
 	ctx := c.Request.Context()
-	sessionID := app.getOrCreateSession(c)
-	game := app.getGameState(ctx, sessionID)
-	hint := app.getHintForWord(game.SessionWord)
+	sessionID := session.GetOrCreateSession(app, c)
+	gameState := session.GetGameState(app, ctx, sessionID)
+	hint := game.GetHintForWord(app, gameState.SessionWord)
 
 	csrfToken, _ := c.Cookie("csrf_token")
 	c.HTML(http.StatusOK, "game-content", gin.H{
-		"game":       game,
+		"game":       gameState,
 		"hint":       hint,
 		"csrf_token": csrfToken,
 	})
 }
 
-func (app *App) retryWordHandler(c *gin.Context) {
+func RetryWordHandler(app *models.App, c *gin.Context) {
 	ctx := c.Request.Context()
-	sessionID := app.getOrCreateSession(c)
+	sessionID := session.GetOrCreateSession(app, c)
 	app.SessionMutex.Lock()
-	game, exists := app.GameSessions[sessionID]
+	gameState, exists := app.GameSessions[sessionID]
 	if !exists {
 		app.SessionMutex.Unlock()
-		app.createNewGame(ctx, sessionID)
+		game.CreateNewGame(app, ctx, sessionID)
 		c.Redirect(http.StatusSeeOther, "/")
 		return
 	}
-	sessionWord := game.SessionWord
-	guesses := lo.Times(MaxGuesses, func(_ int) []GuessResult {
-		return lo.Times(WordLength, func(_ int) GuessResult { return GuessResult{} })
+	sessionWord := gameState.SessionWord
+	guesses := lo.Times(constants.MaxGuesses, func(_ int) []models.GuessResult {
+		return lo.Times(constants.WordLength, func(_ int) models.GuessResult { return models.GuessResult{} })
 	})
-	newGame := &GameState{
+	newGame := &models.GameState{
 		Guesses:        guesses,
 		CurrentRow:     0,
 		GameOver:       false,
@@ -239,7 +244,7 @@ func (app *App) retryWordHandler(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, "/")
 }
 
-func (app *App) healthzHandler(c *gin.Context) {
+func HealthzHandler(app *models.App, c *gin.Context) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -263,50 +268,50 @@ func (app *App) healthzHandler(c *gin.Context) {
 		"memory_alloc_mb": m.Alloc / 1024 / 1024,
 		"memory_sys_mb":   m.Sys / 1024 / 1024,
 		"memory_gc_count": m.NumGC,
-		"uptime":          formatUptime(uptime),
+		"uptime":          util.FormatUptime(uptime),
 		"timestamp":       time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
-func (app *App) validateGameState(_ *gin.Context, game *GameState) error {
+func ValidateGameState(app *models.App, _ *gin.Context, game *models.GameState) error {
 	if game.GameOver {
-		logWarn("Session attempted guess on completed game")
-		return errors.New(ErrorCodeGameOver)
+		util.LogWarn("Session attempted guess on completed game")
+		return errors.New(constants.ErrorCodeGameOver)
 	}
 	return nil
 }
 
-func normalizeGuess(input string) string {
+func NormalizeGuess(input string) string {
 	return strings.ToUpper(strings.TrimSpace(input))
 }
 
-func (app *App) processGuess(ctx context.Context, c *gin.Context, sessionID string, game *GameState, guess string, isHTMX bool, hint string) error {
-	logInfo("Session %s guessed: %s (attempt %d/%d)", sessionID, guess, game.CurrentRow+1, MaxGuesses)
+func ProcessGuess(app *models.App, ctx context.Context, c *gin.Context, sessionID string, gameState *models.GameState, guess string, isHTMX bool, hint string) error {
+	util.LogInfo("Session %s guessed: %s (attempt %d/%d)", sessionID, guess, gameState.CurrentRow+1, constants.MaxGuesses)
 
-	if len(guess) != WordLength {
-		logWarn("Session %s submitted invalid length guess: %s (%d letters)", sessionID, guess, len(guess))
-		return errors.New(ErrorCodeInvalidLength)
+	if len(guess) != constants.WordLength {
+		util.LogWarn("Session %s submitted invalid length guess: %s (%d letters)", sessionID, guess, len(guess))
+		return errors.New(constants.ErrorCodeInvalidLength)
 	}
 
-	if game.CurrentRow >= MaxGuesses {
-		logWarn("Session %s attempted guess after max guesses reached", sessionID)
-		return errors.New(ErrorCodeNoMoreGuesses)
+	if gameState.CurrentRow >= constants.MaxGuesses {
+		util.LogWarn("Session %s attempted guess after max guesses reached", sessionID)
+		return errors.New(constants.ErrorCodeNoMoreGuesses)
 	}
 
-	targetWord := app.getTargetWord(ctx, game)
-	isInvalid := !app.isValidWord(guess)
-	result := checkGuess(guess, targetWord)
-	app.updateGameState(ctx, game, guess, targetWord, result, isInvalid)
-	app.saveGameState(sessionID, game)
+	targetWord := game.GetTargetWord(app, ctx, gameState)
+	isInvalid := !game.IsValidWord(app, guess)
+	result := game.CheckGuess(guess, targetWord, app)
+	game.UpdateGameState(app, ctx, gameState, guess, targetWord, result, isInvalid)
+	session.SaveGameState(app, sessionID, gameState)
 
 	if isHTMX {
-		c.HTML(http.StatusOK, "game-content", gin.H{"game": game, "hint": hint})
+		c.HTML(http.StatusOK, "game-content", gin.H{"game": gameState, "hint": hint})
 	} else {
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"title":   "Vortludo - A Libre Wordle Clone",
 			"message": "Guess the 5-letter word!",
 			"hint":    hint,
-			"game":    game,
+			"game":    gameState,
 		})
 	}
 	return nil

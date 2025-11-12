@@ -1,11 +1,9 @@
-package main
+package models
 
 import (
 	"sync"
 	"time"
 )
-
-type contextKey string
 
 type WordEntry struct {
 	Word string `json:"word"`
@@ -32,6 +30,12 @@ type GuessResult struct {
 	Status string `json:"status"`
 }
 
+// rateLimiterEntry represents a rate limiter entry for a client IP
+type RateLimiterEntry struct {
+	Limiter        interface{} // would be golang.org/x/time/rate.Limiter in actual usage
+	LastAccessTime time.Time
+}
+
 type App struct {
 	WordList        []WordEntry
 	WordSet         map[string]struct{}
@@ -39,7 +43,7 @@ type App struct {
 	HintMap         map[string]string
 	GameSessions    map[string]*GameState
 	SessionMutex    sync.RWMutex
-	LimiterMap      map[string]*rateLimiterEntry
+	LimiterMap      map[string]*RateLimiterEntry
 	LimiterMutex    sync.RWMutex
 	IsProduction    bool
 	StartTime       time.Time
@@ -49,14 +53,4 @@ type App struct {
 	RateLimitBurst  int
 	SessionTimeout  time.Duration
 	RuneBufPool     *sync.Pool
-}
-
-var globalApp *App
-
-func setGlobalApp(a *App) {
-	globalApp = a
-}
-
-func getAppInstance() *App {
-	return globalApp
 }

@@ -1,4 +1,4 @@
-package main
+package util
 
 import (
 	"fmt"
@@ -8,19 +8,19 @@ import (
 	"time"
 )
 
-func dirExists(path string) bool {
+func DirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false
 		}
-		logWarn("Error checking directory existence: %v", err)
+		LogWarn("Error checking directory existence: %v", err)
 		return false
 	}
 	return info.IsDir()
 }
 
-func formatUptime(d time.Duration) string {
+func FormatUptime(d time.Duration) string {
 	seconds := int(d.Seconds()) % 60
 	minutes := int(d.Minutes()) % 60
 	hours := int(d.Hours())
@@ -46,27 +46,27 @@ func plural(n int) string {
 	return "s"
 }
 
-func getEnvDuration(key string, fallback time.Duration) time.Duration {
+func GetEnvDuration(key string, fallback time.Duration) time.Duration {
 	val := os.Getenv(key)
 	if val == "" {
 		return fallback
 	}
 	d, err := time.ParseDuration(val)
 	if err != nil {
-		logWarn("Invalid duration for %s: %v, using default %v", key, err, fallback)
+		LogWarn("Invalid duration for %s: %v, using default %v", key, err, fallback)
 		return fallback
 	}
 	return d
 }
 
-func getEnvInt(key string, fallback int) int {
+func GetEnvInt(key string, fallback int) int {
 	val := os.Getenv(key)
 	if val == "" {
 		return fallback
 	}
 	i, err := parseInt(val)
 	if err != nil {
-		logWarn("Invalid int for %s: %v, using default %d", key, err, fallback)
+		LogWarn("Invalid int for %s: %v, using default %d", key, err, fallback)
 		return fallback
 	}
 	return i
@@ -76,14 +76,14 @@ func parseInt(val string) (int, error) {
 	return strconv.Atoi(val)
 }
 
-func logInfo(format string, v ...any) {
+func LogInfo(format string, v ...any) {
 	log.Printf("[INFO] "+format, v...)
 }
 
-func logWarn(format string, v ...any) {
+func LogWarn(format string, v ...any) {
 	log.Printf("[WARN] "+format, v...)
 }
 
-func logFatal(format string, v ...any) {
+func LogFatal(format string, v ...any) {
 	log.Fatalf("[FATAL] "+format, v...)
 }

@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"testing"
+
+	constants "vortludo/internal/constants"
+	game "vortludo/internal/game"
+	models "vortludo/internal/models"
 )
 
-func testAppWithWords(words []WordEntry) *App {
+func testAppWithWords(words []models.WordEntry) *models.App {
 	wordSet := make(map[string]struct{})
 	acceptedSet := make(map[string]struct{})
 	hintMap := make(map[string]string)
@@ -14,12 +18,12 @@ func testAppWithWords(words []WordEntry) *App {
 		acceptedSet[w.Word] = struct{}{}
 		hintMap[w.Word] = w.Hint
 	}
-	return &App{
+	return &models.App{
 		WordList:        words,
 		WordSet:         wordSet,
 		AcceptedWordSet: acceptedSet,
 		HintMap:         hintMap,
-		GameSessions:    make(map[string]*GameState),
+		GameSessions:    make(map[string]*models.GameState),
 	}
 }
 
@@ -28,12 +32,12 @@ func dummyContext() context.Context {
 }
 
 func TestGetRandomWordEntry(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
 	found := false
 	for i := 0; i < 10; i++ {
-		w := app.getRandomWordEntry(ctx)
+		w := game.GetRandomWordEntry(app, ctx)
 		if w.Word == "apple" || w.Word == "table" {
 			found = true
 		} else {
@@ -46,63 +50,63 @@ func TestGetRandomWordEntry(t *testing.T) {
 }
 
 func TestGetRandomWordEntryExcluding(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
-	w, reset := app.getRandomWordEntryExcluding(ctx, []string{"apple"})
+	w, reset := game.GetRandomWordEntryExcluding(app, ctx, []string{"apple"})
 	if w.Word != "table" || reset {
 		t.Errorf("Expected table, got %v, reset=%v", w.Word, reset)
 	}
-	w, reset = app.getRandomWordEntryExcluding(ctx, []string{"apple", "table"})
+	w, reset = game.GetRandomWordEntryExcluding(app, ctx, []string{"apple", "table"})
 	if reset != true {
 		t.Error("Expected reset=true when all words completed")
 	}
 }
 
 func TestGetHintForWord(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}}
 	app := testAppWithWords(words)
-	if app.getHintForWord("apple") != "fruit" {
+	if game.GetHintForWord(app, "apple") != "fruit" {
 		t.Error("Expected hint 'fruit'")
 	}
-	if app.getHintForWord("") != "" {
+	if game.GetHintForWord(app, "") != "" {
 		t.Error("Expected empty string for empty word")
 	}
-	if app.getHintForWord("unknown") != "" {
+	if game.GetHintForWord(app, "unknown") != "" {
 		t.Error("Expected empty string for unknown word")
 	}
 }
 
 func TestBuildHintMap(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
-	hm := buildHintMap(words)
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
+	hm := game.BuildHintMap(words)
 	if hm["apple"] != "fruit" || hm["table"] != "furniture" {
 		t.Error("Hint map not built correctly")
 	}
 }
 
 func TestGetTargetWord(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
-	game := &GameState{SessionWord: ""}
-	w := app.getTargetWord(ctx, game)
+	gameState := &models.GameState{SessionWord: ""}
+	w := game.GetTargetWord(app, ctx, gameState)
 	if w != "apple" {
 		t.Errorf("Expected 'apple', got %v", w)
 	}
-	game.SessionWord = "table"
-	w = app.getTargetWord(ctx, game)
+	gameState.SessionWord = "table"
+	w = game.GetTargetWord(app, ctx, gameState)
 	if w != "table" {
 		t.Errorf("Expected 'table', got %v", w)
 	}
 }
 
 func TestUpdateGameState_WinLose(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
-	game := &GameState{
-		Guesses:      make([][]GuessResult, MaxGuesses),
+	gameState := &models.GameState{
+		Guesses:      make([][]models.GuessResult, constants.MaxGuesses),
 		CurrentRow:   0,
 		GameOver:     false,
 		Won:          false,
@@ -110,47 +114,47 @@ func TestUpdateGameState_WinLose(t *testing.T) {
 		SessionWord:  "apple",
 		GuessHistory: []string{},
 	}
-	result := []GuessResult{{Letter: "a", Status: GuessStatusCorrect}, {Letter: "p", Status: GuessStatusCorrect}, {Letter: "p", Status: GuessStatusCorrect}, {Letter: "l", Status: GuessStatusCorrect}, {Letter: "e", Status: GuessStatusCorrect}}
-	app.updateGameState(ctx, game, "apple", "apple", result, false)
-	if !game.Won || !game.GameOver || game.TargetWord != "apple" {
+	result := []models.GuessResult{{Letter: "a", Status: constants.GuessStatusCorrect}, {Letter: "p", Status: constants.GuessStatusCorrect}, {Letter: "p", Status: constants.GuessStatusCorrect}, {Letter: "l", Status: constants.GuessStatusCorrect}, {Letter: "e", Status: constants.GuessStatusCorrect}}
+	game.UpdateGameState(app, ctx, gameState, "apple", "apple", result, false)
+	if !gameState.Won || !gameState.GameOver || gameState.TargetWord != "apple" {
 		t.Error("Game should be won and over, target word revealed")
 	}
 
-	game = &GameState{
-		Guesses:      make([][]GuessResult, MaxGuesses),
-		CurrentRow:   MaxGuesses - 1,
+	gameState = &models.GameState{
+		Guesses:      make([][]models.GuessResult, constants.MaxGuesses),
+		CurrentRow:   constants.MaxGuesses - 1,
 		GameOver:     false,
 		Won:          false,
 		TargetWord:   "",
 		SessionWord:  "apple",
 		GuessHistory: []string{},
 	}
-	app.updateGameState(ctx, game, "wrong", "apple", result, false)
-	if !game.GameOver || game.Won {
+	game.UpdateGameState(app, ctx, gameState, "wrong", "apple", result, false)
+	if !gameState.GameOver || gameState.Won {
 		t.Error("Game should be over and lost")
 	}
-	if game.TargetWord != "apple" {
+	if gameState.TargetWord != "apple" {
 		t.Error("Target word should be revealed on loss")
 	}
 }
 
 func TestCheckGuess(t *testing.T) {
-	res := checkGuess("apple", "apple")
+	res := game.CheckGuess("apple", "apple", &models.App{})
 	for _, r := range res {
-		if r.Status != GuessStatusCorrect {
+		if r.Status != constants.GuessStatusCorrect {
 			t.Error("All should be correct")
 		}
 	}
 
-	res = checkGuess("zzzzz", "apple")
+	res = game.CheckGuess("zzzzz", "apple", &models.App{})
 	for _, r := range res {
-		if r.Status != GuessStatusAbsent {
+		if r.Status != constants.GuessStatusAbsent {
 			t.Error("All should be absent")
 		}
 	}
 
-	res = checkGuess("pleap", "apple")
-	statuses := []string{GuessStatusPresent, GuessStatusPresent, GuessStatusPresent, GuessStatusPresent, GuessStatusPresent}
+	res = game.CheckGuess("pleap", "apple", &models.App{})
+	statuses := []string{constants.GuessStatusPresent, constants.GuessStatusPresent, constants.GuessStatusPresent, constants.GuessStatusPresent, constants.GuessStatusPresent}
 	for i, r := range res {
 		if r.Status != statuses[i] {
 			t.Errorf("Expected %v at %d, got %v", statuses[i], i, r.Status)
@@ -159,31 +163,31 @@ func TestCheckGuess(t *testing.T) {
 }
 
 func TestIsValidWordAndIsAcceptedWord(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}}
 	app := testAppWithWords(words)
-	if !app.isValidWord("apple") {
+	if !game.IsValidWord(app, "apple") {
 		t.Error("apple should be valid")
 	}
-	if app.isValidWord("table") {
+	if game.IsValidWord(app, "table") {
 		t.Error("table should not be valid")
 	}
-	if !app.isAcceptedWord("apple") {
+	if !game.IsAcceptedWord(app, "apple") {
 		t.Error("apple should be accepted")
 	}
-	if app.isAcceptedWord("table") {
+	if game.IsAcceptedWord(app, "table") {
 		t.Error("table should not be accepted")
 	}
 }
 
 func TestCreateNewGame(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
-	game := app.createNewGame(ctx, "sess1")
-	if game.SessionWord != "apple" {
+	gameState := game.CreateNewGame(app, ctx, "sess1")
+	if gameState.SessionWord != "apple" {
 		t.Error("SessionWord should be 'apple'")
 	}
-	if len(game.Guesses) != MaxGuesses {
+	if len(gameState.Guesses) != constants.MaxGuesses {
 		t.Error("Guesses length incorrect")
 	}
 	if app.GameSessions["sess1"] == nil {
@@ -192,14 +196,14 @@ func TestCreateNewGame(t *testing.T) {
 }
 
 func TestCreateNewGameWithCompletedWords(t *testing.T) {
-	words := []WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
+	words := []models.WordEntry{{Word: "apple", Hint: "fruit"}, {Word: "table", Hint: "furniture"}}
 	app := testAppWithWords(words)
 	ctx := dummyContext()
-	game, reset := app.createNewGameWithCompletedWords(ctx, "sess2", []string{"apple"})
-	if game.SessionWord != "table" || reset {
+	gameState, reset := game.CreateNewGameWithCompletedWords(app, ctx, "sess2", []string{"apple"})
+	if gameState.SessionWord != "table" || reset {
 		t.Error("Should select 'table' and reset=false")
 	}
-	_, reset = app.createNewGameWithCompletedWords(ctx, "sess3", []string{"apple", "table"})
+	_, reset = game.CreateNewGameWithCompletedWords(app, ctx, "sess3", []string{"apple", "table"})
 	if !reset {
 		t.Error("Should set reset=true when all words completed")
 	}

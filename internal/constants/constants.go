@@ -1,4 +1,4 @@
-package main
+package constants
 
 import "time"
 
@@ -35,6 +35,4 @@ const (
 	ErrorCodeDuplicateGuess  = "duplicate_guess"
 )
 
-const (
-	requestIDKey contextKey = "request_id"
-)
+const RequestIDKey = "request_id"

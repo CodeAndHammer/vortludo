@@ -1,4 +1,4 @@
-package main
+package middleware
 
 import (
 	"context"
@@ -11,6 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/time/rate"
+	constants "vortludo/internal/constants"
+	models "vortludo/internal/models"
+	util "vortludo/internal/util"
 )
 
 type rateLimiterEntry struct {
@@ -20,12 +23,12 @@ type rateLimiterEntry struct {
 
 var cspTemplate = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 
-func recoveryMiddleware() gin.HandlerFunc {
+func RecoveryMiddleware() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
 		if err, ok := recovered.(string); ok {
-			logWarn("Panic recovered: %s", err)
+			util.LogWarn("Panic recovered: %s", err)
 		} else {
-			logWarn("Panic recovered: %v", recovered)
+			util.LogWarn("Panic recovered: %v", recovered)
 		}
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 			"error": "Internal server error",
@@ -33,7 +36,7 @@ func recoveryMiddleware() gin.HandlerFunc {
 	})
 }
 
-func securityHeadersMiddleware() gin.HandlerFunc {
+func SecurityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scheme := "http"
 		if c.Request.TLS != nil {
@@ -52,43 +55,43 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func (app *App) getLimiter(key string) *rate.Limiter {
+func GetLimiter(app *models.App, key string) *rate.Limiter {
 	app.LimiterMutex.RLock()
 	entry, ok := app.LimiterMap[key]
 	app.LimiterMutex.RUnlock()
 	if ok {
 		app.LimiterMutex.Lock()
-		entry.lastAccessTime = time.Now()
+		entry.LastAccessTime = time.Now()
 		app.LimiterMutex.Unlock()
-		return entry.limiter
+		return entry.Limiter.(*rate.Limiter)
 	}
 
 	app.LimiterMutex.Lock()
 	defer app.LimiterMutex.Unlock()
 	if entry, ok = app.LimiterMap[key]; ok {
-		entry.lastAccessTime = time.Now()
-		return entry.limiter
+		entry.LastAccessTime = time.Now()
+		return entry.Limiter.(*rate.Limiter)
 	}
 
 	if key == "" || key == "::1" {
-		logWarn("Rate limiter key is empty or loopback: %q", key)
+		util.LogWarn("Rate limiter key is empty or loopback: %q", key)
 	}
 	rps := app.RateLimitRPS
 	if rps <= 0 {
 		rps = 1
 	}
 	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), app.RateLimitBurst)
-	app.LimiterMap[key] = &rateLimiterEntry{
-		limiter:        limiter,
-		lastAccessTime: time.Now(),
+	app.LimiterMap[key] = &models.RateLimiterEntry{
+		Limiter:        limiter,
+		LastAccessTime: time.Now(),
 	}
 	return limiter
 }
 
-func (app *App) rateLimitMiddleware() gin.HandlerFunc {
+func RateLimitMiddleware(app *models.App) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.ClientIP()
-		if !app.getLimiter(key).Allow() {
+		if !GetLimiter(app, key).Allow() {
 			if c.GetHeader("HX-Request") == "true" {
 				c.Header("HX-Trigger", "rate-limit-exceeded")
 			}
@@ -99,20 +102,20 @@ func (app *App) rateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-func requestIDMiddleware() gin.HandlerFunc {
+func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.Request.Header.Get("X-Request-Id")
 		if reqID == "" {
 			reqID = uuid.NewString()
 		}
-		ctx := context.WithValue(c.Request.Context(), requestIDKey, reqID)
+		ctx := context.WithValue(c.Request.Context(), constants.RequestIDKey, reqID)
 		c.Request = c.Request.WithContext(ctx)
 		c.Header("X-Request-Id", reqID)
 		c.Next()
 	}
 }
 
-func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
+func ValidateCSRFMiddleware(app *models.App) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
 		if method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete || method == http.MethodPatch {
@@ -134,7 +137,7 @@ func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-func (app *App) csrfMiddleware() gin.HandlerFunc {
+func CSRFMiddleware(app *models.App) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := c.Cookie("csrf_token")
 		if err != nil || len(token) < 8 {
@@ -151,31 +154,31 @@ func (app *App) csrfMiddleware() gin.HandlerFunc {
 	}
 }
 
-func (app *App) cleanupExpiredLimiters() {
+func CleanupExpiredLimiters(app *models.App) {
 	app.LimiterMutex.Lock()
 	defer app.LimiterMutex.Unlock()
 
 	now := time.Now()
 	expiredCount := 0
 	for key, entry := range app.LimiterMap {
-		if now.Sub(entry.lastAccessTime) > app.SessionTimeout {
+		if now.Sub(entry.LastAccessTime) > app.SessionTimeout {
 			delete(app.LimiterMap, key)
 			expiredCount++
 		}
 	}
 
 	if expiredCount > 0 {
-		logInfo("Cleaned up %d expired rate limiters", expiredCount)
+		util.LogInfo("Cleaned up %d expired rate limiters", expiredCount)
 	}
 }
 
-func (app *App) startLimiterCleanup() {
+func StartLimiterCleanup(app *models.App) {
 	ticker := time.NewTicker(10 * time.Minute)
 	go func() {
 		defer ticker.Stop()
 		for range ticker.C {
-			app.cleanupExpiredLimiters()
+			CleanupExpiredLimiters(app)
 		}
 	}()
-	logInfo("Started rate limiter cleanup goroutine")
+	util.LogInfo("Started rate limiter cleanup goroutine")
 }
