@@ -18,14 +18,11 @@ import (
 
 	ginGzip "github.com/gin-contrib/gzip"
 
-	"golang.org/x/time/rate"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/samber/lo"
 )
 
-// main is the entry point for the application. It loads configuration, sets up routes, and starts the server.
 func main() {
 	_ = godotenv.Load()
 
@@ -54,11 +51,12 @@ func main() {
 		GameSessions:    make(map[string]*GameState),
 		IsProduction:    isProduction,
 		StartTime:       time.Now(),
-		CookieMaxAge:    getEnvDuration("COOKIE_MAX_AGE", 2*time.Hour),
+		CookieMaxAge:    getEnvDuration("COOKIE_MAX_AGE", 45*time.Minute),
 		StaticCacheAge:  getEnvDuration("STATIC_CACHE_AGE", 5*time.Minute),
 		RateLimitRPS:    getEnvInt("RATE_LIMIT_RPS", 5),
 		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 10),
-		LimiterMap:      make(map[string]*rate.Limiter),
+		SessionTimeout:  getEnvDuration("SESSION_TIMEOUT", SessionTimeoutDefault),
+		LimiterMap:      make(map[string]*rateLimiterEntry),
 		RuneBufPool: &sync.Pool{
 			New: func() any { buf := make([]rune, WordLength); return &buf },
 		},
@@ -66,8 +64,13 @@ func main() {
 
 	setGlobalApp(app)
 
+	app.startSessionCleanup()
+
+	app.startLimiterCleanup()
+
 	router := gin.Default()
 
+	router.Use(recoveryMiddleware())
 	router.Use(requestIDMiddleware())
 	router.Use(securityHeadersMiddleware())
 
@@ -128,7 +131,6 @@ func main() {
 	app.startServer(router)
 }
 
-// startServer launches the HTTP server and handles graceful shutdown on SIGINT/SIGTERM.
 func (app *App) startServer(router *gin.Engine) {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -165,7 +167,6 @@ func (app *App) startServer(router *gin.Engine) {
 	logInfo("Server shutdown complete")
 }
 
-// applyCacheHeaders sets HTTP cache headers for static and dynamic content based on environment.
 func (app *App) applyCacheHeaders(c *gin.Context, production bool) {
 	if production {
 		if strings.HasPrefix(c.Request.URL.Path, "/static/") {
@@ -190,7 +191,6 @@ func (app *App) applyCacheHeaders(c *gin.Context, production bool) {
 	}
 }
 
-// loadWords loads the playable words from data/words.json and returns a filtered list and set.
 func loadWords() ([]WordEntry, map[string]struct{}, error) {
 	logInfo("Loading words from data/words.json")
 
@@ -221,7 +221,6 @@ func loadWords() ([]WordEntry, map[string]struct{}, error) {
 	return wordList, wordSet, nil
 }
 
-// loadAcceptedWords loads the accepted guess words from data/accepted_words.txt.
 func loadAcceptedWords() (map[string]struct{}, error) {
 	logInfo("Loading accepted words from data/accepted_words.txt")
 

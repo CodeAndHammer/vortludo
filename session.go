@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// getOrCreateSession retrieves the session ID from the cookie or creates a new one.
 func (app *App) getOrCreateSession(c *gin.Context) string {
 	sessionID, err := c.Cookie(SessionCookieName)
 	if err != nil || len(sessionID) < 10 {
@@ -22,7 +21,6 @@ func (app *App) getOrCreateSession(c *gin.Context) string {
 	return sessionID
 }
 
-// getGameState retrieves or creates the GameState for a session.
 func (app *App) getGameState(ctx context.Context, sessionID string) *GameState {
 	app.SessionMutex.RLock()
 	game, exists := app.GameSessions[sessionID]
@@ -39,11 +37,39 @@ func (app *App) getGameState(ctx context.Context, sessionID string) *GameState {
 	return app.createNewGame(ctx, sessionID)
 }
 
-// saveGameState updates the in-memory game state for a session.
 func (app *App) saveGameState(sessionID string, game *GameState) {
 	app.SessionMutex.Lock()
 	app.GameSessions[sessionID] = game
 	game.LastAccessTime = time.Now()
 	app.SessionMutex.Unlock()
 	logInfo("Updated in-memory game state for session: %s", sessionID)
+}
+
+func (app *App) cleanupExpiredSessions() {
+	app.SessionMutex.Lock()
+	defer app.SessionMutex.Unlock()
+
+	now := time.Now()
+	expiredCount := 0
+	for sessionID, game := range app.GameSessions {
+		if now.Sub(game.LastAccessTime) > app.SessionTimeout {
+			delete(app.GameSessions, sessionID)
+			expiredCount++
+		}
+	}
+
+	if expiredCount > 0 {
+		logInfo("Cleaned up %d expired sessions", expiredCount)
+	}
+}
+
+func (app *App) startSessionCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			app.cleanupExpiredSessions()
+		}
+	}()
+	logInfo("Started session cleanup goroutine")
 }

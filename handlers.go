@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// homeHandler renders the main game page for the current session.
 func (app *App) homeHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	sessionID := app.getOrCreateSession(c)
@@ -31,7 +31,6 @@ func (app *App) homeHandler(c *gin.Context) {
 	})
 }
 
-// newGameHandler starts a new game session, optionally resetting the session ID.
 func (app *App) newGameHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	sessionID := app.getOrCreateSession(c)
@@ -109,7 +108,6 @@ func (app *App) newGameHandler(c *gin.Context) {
 	}
 }
 
-// guessHandler processes a guess submission, validates it, and updates the game state.
 func (app *App) guessHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	sessionID := app.getOrCreateSession(c)
@@ -197,7 +195,6 @@ func (app *App) guessHandler(c *gin.Context) {
 	}
 }
 
-// gameStateHandler renders the current game board as an HTML fragment.
 func (app *App) gameStateHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	sessionID := app.getOrCreateSession(c)
@@ -212,7 +209,6 @@ func (app *App) gameStateHandler(c *gin.Context) {
 	})
 }
 
-// retryWordHandler resets the game state for the current session but keeps the same word.
 func (app *App) retryWordHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	sessionID := app.getOrCreateSession(c)
@@ -243,20 +239,35 @@ func (app *App) retryWordHandler(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, "/")
 }
 
-// healthzHandler returns a JSON health check with server stats.
 func (app *App) healthzHandler(c *gin.Context) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
 	uptime := time.Since(app.StartTime)
+
+	app.SessionMutex.RLock()
+	sessionCount := len(app.GameSessions)
+	app.SessionMutex.RUnlock()
+
+	app.LimiterMutex.RLock()
+	limiterCount := len(app.LimiterMap)
+	app.LimiterMutex.RUnlock()
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":         "ok",
-		"env":            map[bool]string{true: "production", false: "development"}[app.IsProduction],
-		"words_loaded":   len(app.WordList),
-		"accepted_words": len(app.AcceptedWordSet),
-		"uptime":         formatUptime(uptime),
-		"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		"status":          "ok",
+		"env":             map[bool]string{true: "production", false: "development"}[app.IsProduction],
+		"words_loaded":    len(app.WordList),
+		"accepted_words":  len(app.AcceptedWordSet),
+		"active_sessions": sessionCount,
+		"active_limiters": limiterCount,
+		"memory_alloc_mb": m.Alloc / 1024 / 1024,
+		"memory_sys_mb":   m.Sys / 1024 / 1024,
+		"memory_gc_count": m.NumGC,
+		"uptime":          formatUptime(uptime),
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
-// validateGameState returns an error if the game is already over.
 func (app *App) validateGameState(_ *gin.Context, game *GameState) error {
 	if game.GameOver {
 		logWarn("Session attempted guess on completed game")
@@ -265,7 +276,6 @@ func (app *App) validateGameState(_ *gin.Context, game *GameState) error {
 	return nil
 }
 
-// normalizeGuess trims and uppercases a guess string for comparison.
 func normalizeGuess(input string) string {
 	return strings.ToUpper(strings.TrimSpace(input))
 }

@@ -13,10 +13,26 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// cspTemplate is a precomputed Content-Security-Policy template to avoid allocations per-request
+type rateLimiterEntry struct {
+	limiter        *rate.Limiter
+	lastAccessTime time.Time
+}
+
 var cspTemplate = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.jsdelivr.net/npm 'unsafe-inline' 'unsafe-eval'; style-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net https://fonts.bunny.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
 
-// securityHeadersMiddleware sets recommended security headers including CSP.
+func recoveryMiddleware() gin.HandlerFunc {
+	return gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
+		if err, ok := recovered.(string); ok {
+			logWarn("Panic recovered: %s", err)
+		} else {
+			logWarn("Panic recovered: %v", recovered)
+		}
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "Internal server error",
+		})
+	})
+}
+
 func securityHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scheme := "http"
@@ -36,19 +52,22 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-// getLimiter returns a rate limiter for the given key (usually client IP).
 func (app *App) getLimiter(key string) *rate.Limiter {
 	app.LimiterMutex.RLock()
-	lim, ok := app.LimiterMap[key]
+	entry, ok := app.LimiterMap[key]
 	app.LimiterMutex.RUnlock()
 	if ok {
-		return lim
+		app.LimiterMutex.Lock()
+		entry.lastAccessTime = time.Now()
+		app.LimiterMutex.Unlock()
+		return entry.limiter
 	}
 
 	app.LimiterMutex.Lock()
 	defer app.LimiterMutex.Unlock()
-	if lim, ok = app.LimiterMap[key]; ok {
-		return lim
+	if entry, ok = app.LimiterMap[key]; ok {
+		entry.lastAccessTime = time.Now()
+		return entry.limiter
 	}
 
 	if key == "" || key == "::1" {
@@ -58,12 +77,14 @@ func (app *App) getLimiter(key string) *rate.Limiter {
 	if rps <= 0 {
 		rps = 1
 	}
-	lim = rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), app.RateLimitBurst)
-	app.LimiterMap[key] = lim
-	return lim
+	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(rps)), app.RateLimitBurst)
+	app.LimiterMap[key] = &rateLimiterEntry{
+		limiter:        limiter,
+		lastAccessTime: time.Now(),
+	}
+	return limiter
 }
 
-// rateLimitMiddleware returns a Gin middleware that enforces per-client rate limiting.
 func (app *App) rateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.ClientIP()
@@ -78,7 +99,6 @@ func (app *App) rateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requestIDMiddleware injects a request ID into the context for each request.
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqID := c.Request.Header.Get("X-Request-Id")
@@ -92,7 +112,6 @@ func requestIDMiddleware() gin.HandlerFunc {
 	}
 }
 
-// validateCSRFMiddleware enforces that unsafe methods include a matching CSRF token
 func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		method := c.Request.Method
@@ -115,8 +134,6 @@ func (app *App) validateCSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-// csrfMiddleware ensures a per-session CSRF token cookie exists and stores it in the context.
-// It does not validate requests; handlers should validate the token on unsafe methods.
 func (app *App) csrfMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := c.Cookie("csrf_token")
@@ -132,4 +149,33 @@ func (app *App) csrfMiddleware() gin.HandlerFunc {
 		c.Set("csrf_token", token)
 		c.Next()
 	}
+}
+
+func (app *App) cleanupExpiredLimiters() {
+	app.LimiterMutex.Lock()
+	defer app.LimiterMutex.Unlock()
+
+	now := time.Now()
+	expiredCount := 0
+	for key, entry := range app.LimiterMap {
+		if now.Sub(entry.lastAccessTime) > app.SessionTimeout {
+			delete(app.LimiterMap, key)
+			expiredCount++
+		}
+	}
+
+	if expiredCount > 0 {
+		logInfo("Cleaned up %d expired rate limiters", expiredCount)
+	}
+}
+
+func (app *App) startLimiterCleanup() {
+	ticker := time.NewTicker(10 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			app.cleanupExpiredLimiters()
+		}
+	}()
+	logInfo("Started rate limiter cleanup goroutine")
 }
