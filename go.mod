@@ -7,14 +7,18 @@ require (
 	github.com/google/uuid v1.6.0
 )
 
-require github.com/samber/lo v1.52.0
+require (
+	github.com/gin-contrib/gzip v1.2.5
+	github.com/joho/godotenv v1.5.1
+	github.com/samber/lo v1.52.0
+	go.eigsys.de/gin-cachecontrol/v2 v2.4.0
+)
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.55.0 // indirect
-	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
